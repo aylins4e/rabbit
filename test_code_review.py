@@ -1,29 +1,99 @@
 import pytest
+from code_review import CodeReview
 
-def test_basic_review():
+@pytest.fixture
+def reviewer():
+    return CodeReview()
+
+def test_basic_review(reviewer):
     """Test basic code review functionality"""
-    assert True, "Basic test should pass"
-
-def test_code_analysis():
-    """Test code analysis capabilities"""
-    code_sample = """
-    def add(a, b):
-        return a + b
+    code = """
+def hello():
+    print('world')
     """
-    # Placeholder for actual code analysis test
-    assert len(code_sample) > 0
+    issues = reviewer.analyze_code(code)
+    assert isinstance(issues, list)
+
+def test_syntax_error_detection(reviewer):
+    """Test detection of syntax errors"""
+    code = """
+def broken_function()
+    print('missing colon')
+    """
+    issues = reviewer.analyze_code(code)
+    assert len(issues) > 0
+    assert issues[0]['severity'] == 'high'
+    assert 'Syntax error' in issues[0]['message']
+
+def test_long_function_detection(reviewer):
+    """Test detection of too long functions"""
+    long_function = "def long_func():\n" + "    print('line')\n" * 25
+    issues = reviewer.analyze_code(long_function)
+    assert any(
+        issue['message'].startswith("Function 'long_func' is too long")
+        for issue in issues
+    )
+
+def test_variable_naming(reviewer):
+    """Test variable naming conventions check"""
+    code = """
+def bad_names():
+    x = 1
+    y = 2
+    return x + y
+    """
+    issues = reviewer.analyze_code(code)
+    assert any(
+        "Variable name 'x' is too short" in issue['message']
+        for issue in issues
+    )
+
+def test_nested_complexity(reviewer):
+    """Test nested complexity detection"""
+    code = """
+def complex_function(a, b, c, d):
+    if a:
+        if b:
+            if c:
+                if d:
+                    return True
+    return False
+    """
+    issues = reviewer.analyze_code(code)
+    assert any(
+        "Code is too nested" in issue['message']
+        for issue in issues
+    )
 
 class TestCodeReviewFeatures:
-    def test_comment_generation(self):
+    def test_comment_generation(self, reviewer):
         """Test if review comments are generated properly"""
-        sample_issue = "Unused variable"
-        assert isinstance(sample_issue, str)
+        issue = reviewer.format_suggestion(10, "Test issue", "high")
+        comment = reviewer.generate_review_comment(issue)
+        assert "Line 10" in comment
+        assert "Test issue" in comment
+        assert "🔴" in comment  # High severity emoji
     
-    def test_suggestion_format(self):
+    def test_suggestion_format(self, reviewer):
         """Test if code suggestions are properly formatted"""
-        suggestion = {
-            "line": 10,
-            "message": "Consider using a more descriptive variable name",
-            "severity": "warning"
-        }
-        assert all(key in suggestion for key in ["line", "message", "severity"]) 
+        suggestion = reviewer.format_suggestion(
+            line_number=10,
+            message="Consider using a more descriptive variable name",
+            severity="warning"  # Invalid severity
+        )
+        # Should default to "info" for invalid severity
+        assert suggestion['severity'] == "info"
+        assert suggestion['line'] == 10
+        assert "descriptive variable name" in suggestion['message']
+
+    @pytest.mark.parametrize("severity,expected_emoji", [
+        ("high", "🔴"),
+        ("medium", "🟡"),
+        ("low", "🟢"),
+        ("info", "ℹ️")
+    ])
+    def test_severity_emojis(self, reviewer, severity, expected_emoji):
+        """Test different severity levels and their emojis"""
+        issue = reviewer.format_suggestion(1, "Test message", severity)
+        comment = reviewer.generate_review_comment(issue)
+        assert expected_emoji in comment 
